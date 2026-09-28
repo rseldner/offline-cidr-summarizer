@@ -13,7 +13,7 @@ Paste any text containing IP addresses and get back a compact list of CIDR block
 
 ## Quick start
 
-- Option 1: Access the hosted demo page here:
+- Option 1: Access the hosted [demo page here](https://rseldner.github.io/offline-cidr-summarizer/cidr-summarizer.html)
 - Option 2: Download `cidr-summarizer.html` (or clone this repo).
 
 1. Paste your IPs and click **Analyze**.
