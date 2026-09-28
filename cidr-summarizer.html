@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Offline CIDR Summarizer</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0f1117; --bg2: #1a1d27; --bg3: #232736;
+  --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.13);
+  --text: #e8eaf0; --text2: #8b90a0; --text3: #454b5e;
+  --accent: #4e9bff; --green: #3ecf8e; --amber: #f0b429; --red: #e8585a;
+  --mono: 'JetBrains Mono','Fira Code','Cascadia Code',monospace;
+  --sans: 'Inter',system-ui,sans-serif;
+}
+body { font-family: var(--sans); background: var(--bg); color: var(--text); min-height: 100vh; }
+header {
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  padding: 14px 24px; display: flex; align-items: center; gap: 12px;
+}
+.logo { width: 28px; height: 28px; background: var(--accent); border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; color: #fff; flex-shrink: 0; }
+header h1 { font-size: 15px; font-weight: 600; }
+header p  { font-size: 11px; color: var(--text2); margin-top: 1px; }
+.offline-badge { margin-left: auto; font-size: 10px; padding: 3px 9px; border-radius: 20px;
+  background: rgba(62,207,142,0.1); color: var(--green);
+  border: 1px solid rgba(62,207,142,0.2); letter-spacing: 0.04em; }
+.layout { display: grid; grid-template-columns: 1fr 1fr; height: calc(100vh - 57px); }
+.panel { display: flex; flex-direction: column; border-right: 1px solid var(--border); overflow: hidden; }
+.panel-head { padding: 10px 18px; border-bottom: 1px solid var(--border);
+  background: var(--bg2); display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.panel-head h2 { font-size: 11px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.08em; }
+.panel-head .ct { margin-left: auto; font-size: 11px; color: var(--text3); font-family: var(--mono); }
+textarea { flex: 1; background: var(--bg); color: var(--text); border: none; outline: none;
+  resize: none; padding: 14px 18px; font-family: var(--mono); font-size: 12px; line-height: 1.8; }
+textarea::placeholder { color: var(--text3); }
+.controls { padding: 10px 18px; border-top: 1px solid var(--border); background: var(--bg2);
+  display: flex; flex-direction: column; gap: 10px; flex-shrink: 0; }
+.agg-row { display: flex; align-items: center; gap: 10px; }
+.agg-label { font-size: 12px; color: var(--text2); white-space: nowrap; min-width: 80px; }
+.agg-slider { flex: 1; -webkit-appearance: none; appearance: none; height: 4px; border-radius: 2px; outline: none; cursor: pointer; }
+.agg-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); cursor: pointer; }
+.agg-slider::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: none; cursor: pointer; }
+.agg-val { font-size: 13px; font-weight: 600; font-family: var(--mono); min-width: 28px; text-align: right; color: var(--accent); }
+.agg-desc { font-size: 11px; color: var(--text3); padding-left: 90px; margin-top: -4px; }
+.btn-row { display: flex; gap: 8px; align-items: center; }
+button { padding: 6px 16px; border-radius: 6px; font-size: 12px; font-weight: 500;
+  cursor: pointer; border: none; transition: all 0.12s; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: #3d8aee; }
+.btn-primary:active { transform: scale(0.97); }
+.btn-ghost { background: transparent; color: var(--text2); border: 1px solid var(--border2); }
+.btn-ghost:hover { background: var(--bg3); color: var(--text); }
+select, input[type=number] { background: var(--bg3); border: 1px solid var(--border2); color: var(--text);
+  border-radius: 5px; padding: 4px 8px; font-size: 11px; font-family: var(--mono); outline: none; }
+.prefix-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.prefix-row label { font-size: 11px; color: var(--text2); }
+.fam-lbl { font-size: 10px; font-weight: 600; color: var(--text3); letter-spacing: 0.06em; width: 30px; }
+.prefix-row .btns { margin-left: auto; display: flex; gap: 6px; }
+.info-box { border: 1px solid rgba(78,155,255,0.25); background: rgba(78,155,255,0.06); border-radius: 7px;
+  padding: 8px 12px; margin-bottom: 12px; font-size: 11px; color: var(--accent); line-height: 1.6; }
+input[type=number] { width: 58px; }
+.right { display: flex; flex-direction: column; overflow: hidden; }
+.results { flex: 1; overflow-y: auto; padding: 14px 18px; }
+.results::-webkit-scrollbar { width: 5px; }
+.results::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+.empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 8px; color: var(--text3); }
+.empty-icon { width: 44px; height: 44px; border: 1px solid var(--border2); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+.stats { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-bottom: 14px; }
+.stat { background: var(--bg2); border: 1px solid var(--border); border-radius: 7px; padding: 8px 12px; }
+.stat .sl { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.07em; margin-bottom: 3px; }
+.stat .sv { font-size: 18px; font-weight: 600; font-family: var(--mono); }
+.stat.blue .sv { color: var(--accent); }
+.stat.green .sv { color: var(--green); }
+.stat.amber .sv { color: var(--amber); }
+.collateral { border: 1px solid rgba(240,180,41,0.25); background: rgba(240,180,41,0.06);
+  border-radius: 7px; padding: 8px 12px; margin-bottom: 12px; font-size: 11px; color: var(--amber);
+  display: flex; align-items: center; gap: 8px; }
+.collateral span { flex: 1; }
+.cidr-list { display: flex; flex-direction: column; gap: 3px; }
+.crow { display: grid; grid-template-columns: 1fr auto auto auto;
+  align-items: center; gap: 10px;
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 5px; padding: 6px 10px; }
+.crow:hover { border-color: var(--border2); }
+.crow .caddr { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
+.crow .cpfx  { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+.crow .chosts { font-size: 10px; color: var(--text3); font-family: var(--mono); }
+.fpill { font-size: 10px; padding: 2px 7px; border-radius: 20px; font-weight: 500; white-space: nowrap; min-width: 46px; text-align: center; }
+.fp-full  { background: rgba(62,207,142,0.12);  color: var(--green); border: 1px solid rgba(62,207,142,0.2); }
+.fp-med   { background: rgba(240,180,41,0.12);  color: var(--amber); border: 1px solid rgba(240,180,41,0.2); }
+.fp-low   { background: rgba(232,88,90,0.12);   color: var(--red);   border: 1px solid rgba(232,88,90,0.2); }
+.fp-host  { background: rgba(78,155,255,0.12);  color: var(--accent);border: 1px solid rgba(78,155,255,0.2); }
+.pfx-chart { margin-bottom: 16px; }
+.pfx-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
+.pfx-lbl { font-family: var(--mono); font-size: 11px; color: var(--text2); width: 60px; text-align: right; flex-shrink: 0; }
+.pfx-bar-bg { flex: 1; background: var(--bg3); border-radius: 2px; height: 14px; overflow: hidden; }
+.pfx-bar    { height: 100%; background: var(--accent); opacity: 0.65; }
+.pfx-cnt { font-family: var(--mono); font-size: 10px; color: var(--text3); width: 28px; }
+.slbl { font-size: 10px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+.out-bar { padding: 10px 18px; border-top: 1px solid var(--border); background: var(--bg2);
+  display: none; align-items: center; gap: 7px; }
+.ftabs { display: flex; gap: 3px; }
+.ftab { padding: 4px 10px; border-radius: 5px; font-size: 11px; cursor: pointer;
+  border: 1px solid var(--border2); background: transparent; color: var(--text2); font-family: var(--mono); }
+.ftab.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ftab:hover:not(.on) { background: var(--bg3); color: var(--text); }
+.copy-btn { margin-left: auto; }
+@media (max-width: 760px) {
+  header { padding: 12px 16px; }
+  header p { display: none; }
+  .layout { grid-template-columns: 1fr; height: auto; }
+  .panel { border-right: none; border-bottom: 1px solid var(--border); }
+  textarea { min-height: 200px; padding: 12px 16px; }
+  .controls, .panel-head, .out-bar { padding-left: 16px; padding-right: 16px; }
+  .agg-desc { padding-left: 0; margin-top: 0; }
+  .prefix-row .btns { margin-left: 0; width: 100%; justify-content: flex-end; }
+  .right { min-height: 60vh; }
+  .results { padding: 12px 16px; }
+  .stats { grid-template-columns: repeat(2,1fr); }
+  .out-bar { flex-wrap: wrap; }
+  .copy-btn { margin-left: 0; width: 100%; }
+}
+.err-box { background: rgba(232,88,90,0.06); border: 1px solid rgba(232,88,90,0.18);
+  border-radius: 6px; padding: 8px 12px; margin-bottom: 12px; }
+.err-box .et { font-size: 11px; font-weight: 600; color: var(--red); margin-bottom: 4px; }
+.err-box .el { font-family: var(--mono); font-size: 10px; color: rgba(232,88,90,0.75); line-height: 1.9; }
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">&#x2197;</div>
+  <div><h1>Offline CIDR Summarizer</h1><p>Paste any text, get a compact IP allowlist</p></div>
+  <div class="offline-badge">&#x25CF;&nbsp;Offline</div>
+</header>
+
+<div class="layout">
+  <div class="panel">
+    <div class="panel-head">
+      <h2>Input IPs</h2>
+      <span class="ct" id="ip-ct">0 found</span>
+    </div>
+    <textarea id="ip-input" placeholder="Paste anything: IPs, CIDRs and ranges are pulled out of the text.
+Everything else is ignored. For example:
+  Please allow 10.0.0.1 or 10.0.0.2
+  192.168.0.0/24, (172.16.0.1 - 172.16.0.50)
+  src=203.0.113.7:443, 2001:db8::1 and [2001:db8:0:1::5]:443
+  ::ffff:198.51.100.9 is treated as IPv4"></textarea>
+    <div class="controls">
+      <div class="agg-row">
+        <span class="agg-label">Aggression</span>
+        <input type="range" class="agg-slider" id="agg" min="1" max="10" value="5" step="1">
+        <span class="agg-val" id="agg-val">5</span>
+      </div>
+      <div class="agg-desc" id="agg-desc"></div>
+      <div class="prefix-row">
+        <span class="fam-lbl">IPv4</span>
+        <label>Broadest /</label>
+        <input type="number" id="min-pfx" value="8" min="1" max="32" title="Never emit an IPv4 block broader than this prefix">
+        <label>Narrowest /</label>
+        <input type="number" id="max-pfx" value="32" min="1" max="32" title="Never go narrower than this IPv4 prefix (32 = single hosts)">
+      </div>
+      <div class="prefix-row">
+        <span class="fam-lbl">IPv6</span>
+        <label>Broadest /</label>
+        <input type="number" id="min-pfx6" value="32" min="1" max="128" title="Never emit an IPv6 block broader than this prefix">
+        <label>Narrowest /</label>
+        <input type="number" id="max-pfx6" value="64" min="1" max="128" title="Never go narrower than this IPv6 prefix. 64 = one subnet per address (clients rotate addresses within a /64); 128 = exact addresses">
+        <div class="btns">
+          <button class="btn-ghost" onclick="clearAll()">Clear</button>
+          <button class="btn-primary" onclick="analyze()">Analyze &#x2192;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="right">
+    <div class="panel-head">
+      <h2>Results</h2>
+      <span class="ct" id="res-ct"></span>
+    </div>
+    <div class="results" id="results">
+      <div class="empty">
+        <div class="empty-icon">&#x1F5F8;</div>
+        <p>Paste IPs and click Analyze</p>
+      </div>
+    </div>
+    <div class="out-bar" id="out-bar">
+      <div class="ftabs">
+        <button class="ftab on"  onclick="setFmt('cidr',this)">CIDR list</button>
+        <button class="ftab"     onclick="setFmt('elastic',this)" title="Traffic filter ruleset request body. Set name and region before sending. IPv6 sources work on ECE only.">Elastic JSON</button>
+        <button class="ftab"     onclick="setFmt('csv',this)">CSV</button>
+      </div>
+      <button class="btn-primary copy-btn" onclick="copyOut()">Copy output</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Address families ────────────────────────────────────────────────────────
+// All address math uses BigInt so one engine handles 32-bit IPv4 and
+// 128-bit IPv6. Inputs are kept as [start, end] intervals, never expanded.
+const FAM = {
+  4: { v:4, bits:32,  name:'IPv4' },
+  6: { v:6, bits:128, name:'IPv6' },
+};
+const pow2 = k => 1n << BigInt(k);
+
+// Strict dotted-quad: exactly four 1-3 digit decimal octets, each <= 255
+function parse4(s) {
+  const p = s.split('.');
+  if (p.length !== 4 || p.some(x => !/^\d{1,3}$/.test(x) || +x > 255)) return null;
+  return p.reduce((n,x) => (n << 8n) | BigInt(+x), 0n);
+}
+function fmt4(n) {
+  return [24n,16n,8n,0n].map(s => Number((n >> s) & 255n)).join('.');
+}
+
+// IPv6 per RFC 4291 text forms, incl. "::" compression and a trailing dotted IPv4
+function parse6(s) {
+  s = s.toLowerCase();
+  if (s.split('::').length > 2) return null;
+  let tail4 = null;
+  const lc = s.lastIndexOf(':');
+  if (s.indexOf('.', lc) !== -1) {
+    tail4 = parse4(s.slice(lc+1)); if (tail4 === null) return null;
+    s = s.slice(0, lc+1) + '0:0';
+  }
+  const halves = s.split('::');
+  const part = h => h === '' ? [] : h.split(':');
+  const head = part(halves[0]), tail = halves.length === 2 ? part(halves[1]) : [];
+  const count = head.length + tail.length;
+  if (halves.length === 1 ? count !== 8 : count > 7) return null;
+  const groups = halves.length === 1 ? head : [...head, ...Array(8-count).fill('0'), ...tail];
+  let n = 0n;
+  for (const g of groups) {
+    if (!/^[0-9a-f]{1,4}$/.test(g)) return null;
+    n = (n << 16n) | BigInt('0x'+g);
+  }
+  if (tail4 !== null) n = (n & ~0xffffffffn) | tail4;
+  return n;
+}
+// Canonical text form per RFC 5952: lowercase, no leading zeros, longest zero run as "::"
+function fmt6(n) {
+  const g = []; for (let i=7;i>=0;i--) g.push(Number((n >> BigInt(i*16)) & 0xffffn));
+  let bs=-1, bl=0;
+  for (let i=0;i<8;) {
+    if (g[i] !== 0) { i++; continue; }
+    let j=i; while (j<8 && g[j]===0) j++;
+    if (j-i > bl && j-i >= 2) { bs=i; bl=j-i; }
+    i=j;
+  }
+  const h = g.map(x => x.toString(16));
+  return bs < 0 ? h.join(':') : h.slice(0,bs).join(':') + '::' + h.slice(bs+bl).join(':');
+}
+const fmtAddr = (fam, n) => fam === 4 ? fmt4(n) : fmt6(n);
+
+// ── Extract IPs, CIDRs and ranges from free text ────────────────────────────
+// Anything that isn't address-shaped (words, punctuation, ports, "ip=") is ignored.
+const DASH   = String.raw`[ \t]*[-–—][ \t]*`;
+const V4_PAT = String.raw`\d{1,3}(?:\.\d{1,3}){3}`;
+// IPv6 candidate: hex digits, colons and dots with at least two colons,
+// not ending in a dot (so a sentence-ending period is left off)
+const V6_PAT = String.raw`(?=[0-9A-Fa-f.]*:[0-9A-Fa-f.]*:)[0-9A-Fa-f:.]*[0-9A-Fa-f:]`;
+const V4_RE = new RegExp(
+  String.raw`(?<!\d)(?<!\d\.)(${V4_PAT})(?:${DASH}(${V4_PAT})|\/(\d{1,3}))?(?!\d)(?!\.\d)`, 'g');
+const V6_RE = new RegExp(
+  String.raw`(?<![\w.])(${V6_PAT})(?:${DASH}(${V6_PAT})|\/(\d{1,3}))?(?![\w:])`, 'g');
+const MAC_RE = /^[0-9a-f]{2}(?::[0-9a-f]{2}){5}$/i;
+
+function toInterval(fam, a, b, pfx) {
+  const bits = FAM[fam].bits;
+  if (b !== null) return a <= b ? [a, b] : null;              // range
+  if (pfx !== null) {                                        // CIDR (host bits masked off)
+    if (pfx > bits) return null;
+    const size = pow2(bits - pfx), net = a - a % size;
+    return [net, net + size - 1n];
+  }
+  return [a, a];
+}
+
+function extractEntries(text, errs) {
+  const out = [], spans = [];
+  for (const m of text.matchAll(V6_RE)) {
+    spans.push([m.index, m.index + m[0].length]);
+    if (!/\d/.test(m[0])) continue;   // all-letter tokens like a::b are code, not addresses
+    const a = parse6(m[1]);
+    const b = m[2] !== undefined ? parse6(m[2]) : null;
+    const pfx = m[3] !== undefined ? parseInt(m[3],10) : null;
+    const iv = (a === null || (m[2] !== undefined && b === null)) ? null : toInterval(6, a, b, pfx);
+    if (!iv) {
+      // Only report things that really look like IPv6; ignore times (12:30:45) and MACs
+      const colons = (m[1].match(/:/g) || []).length;
+      if ((m[1].includes('::') || colons >= 3) && !MAC_RE.test(m[1])) errs.push(m[0]);
+      continue;
+    }
+    // IPv4-mapped (::ffff:a.b.c.d) is really IPv4 traffic, so treat it as IPv4
+    if ((iv[0] >> 32n) === 0xffffn && (iv[1] >> 32n) === 0xffffn)
+      out.push({ fam:4, lo: iv[0] & 0xffffffffn, hi: iv[1] & 0xffffffffn });
+    else out.push({ fam:6, lo: iv[0], hi: iv[1] });
+  }
+  // Skip IPv4 matches inside an IPv6 token (e.g. ::ffff:1.2.3.4). Both match
+  // lists are in text order, so one forward-moving pointer keeps this linear.
+  let sp = 0;
+  for (const m of text.matchAll(V4_RE)) {
+    while (sp < spans.length && spans[sp][1] <= m.index) sp++;
+    if (sp < spans.length && spans[sp][0] <= m.index) continue;
+    const a = parse4(m[1]);
+    const b = m[2] !== undefined ? parse4(m[2]) : null;
+    const pfx = m[3] !== undefined ? parseInt(m[3],10) : null;
+    const iv = (a === null || (m[2] !== undefined && b === null)) ? null : toInterval(4, a, b, pfx);
+    if (iv) out.push({ fam:4, lo: iv[0], hi: iv[1] }); else errs.push(m[0]);
+  }
+  return out;
+}
+
+// ── Sorted, disjoint interval index with prefix sums ────────────────────────
+function buildIndex(intervals) {
+  intervals.sort((x,y) => x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0);
+  const starts=[], ends=[];
+  for (const [s,e] of intervals) {
+    const k = ends.length-1;
+    if (k>=0 && s <= ends[k]+1n) { if (e > ends[k]) ends[k] = e; }   // overlap/adjacent
+    else { starts.push(s); ends.push(e); }
+  }
+  const cum = [0n];
+  for (let i=0;i<starts.length;i++) cum.push(cum[i] + (ends[i]-starts[i]+1n));
+  return { starts, ends, cum, total: cum[starts.length] };
+}
+
+// Count indexed addresses inside [lo..hi] (binary search + prefix sums)
+function countIn(idx, lo, hi) {
+  const {starts, ends, cum} = idx;
+  let l=0, r=ends.length;
+  while(l<r){const m=(l+r)>>1; ends[m]<lo?l=m+1:r=m;}      // first interval ending >= lo
+  const i=l;
+  l=0; r=starts.length;
+  while(l<r){const m=(l+r)>>1; starts[m]<=hi?l=m+1:r=m;}   // last interval starting <= hi
+  const j=l-1;
+  if (i>j) return 0n;
+  const clipL = lo > starts[i] ? lo - starts[i] : 0n;
+  const clipR = ends[j] > hi ? ends[j] - hi : 0n;
+  return cum[j+1] - cum[i] - clipL - clipR;
+}
+
+// ── Top-down recursive CIDR aggregation ─────────────────────────────────────
+// Fill is measured in units of the Narrowest prefix: for IPv4 at /32 that is
+// plain address fill; for IPv6 at /64 it is "how many /64 networks are used".
+// dec: input rounded out to Narrowest units (drives decisions)
+// orig: the exact input (drives the matched-address counts shown)
+const MAX_CIDRS = 50000;
+class CidrLimitError extends Error {}
+
+function topDown(ctx, net, pfx, out) {
+  const {fam, bits, dec, orig, thresh, maxPfx, unit} = ctx;
+  const sz  = pow2(bits - pfx);
+  const hi  = net + sz - 1n;
+  const cnt = countIn(dec, net, hi);
+  if (cnt === 0n) return;
+  if (pfx >= maxPfx || Number(cnt) / Number(sz) >= thresh) {
+    if (out.length >= MAX_CIDRS) throw new CidrLimitError();
+    out.push({ fam, network:net, prefix:pfx, hosts:sz, cover:countIn(orig, net, hi),
+               units: sz / unit, unitCover: cnt / unit });   // in Narrowest-sized networks
+    return;
+  }
+  const half = sz / 2n;
+  topDown(ctx, net,        pfx+1, out);
+  topDown(ctx, net + half, pfx+1, out);
+}
+
+// Longest prefix shared by lo and hi
+function commonPrefix(lo, hi, bits) {
+  const x = lo ^ hi;
+  return x === 0n ? bits : bits - x.toString(2).length;
+}
+
+// Addresses are grouped by their Broadest-prefix block; each group starts from
+// its tightest enclosing block clamped to [minPfx, maxPfx], so no output block
+// is broader than minPfx, narrower than maxPfx, or crosses a minPfx boundary.
+function summarize(fam, intervals, thresh, minPfx, maxPfx, out) {
+  const bits = FAM[fam].bits;
+  const orig = buildIndex(intervals.map(iv => [...iv]));
+  const unit = pow2(bits - maxPfx);
+  const dec  = unit === 1n ? orig
+    : buildIndex(intervals.map(([a,b]) => [a - a % unit, b - b % unit + unit - 1n]));
+  const ctx = { fam, bits, dec, orig, thresh, maxPfx, unit };
+  const {starts, ends} = dec, n = starts.length;
+  const gsz = pow2(bits - minPfx);
+  let i = 0, cur = n ? starts[0] : 0n;
+  while (i < n) {
+    const gEnd = cur - cur % gsz + gsz - 1n;
+    const lo = cur; let hi = cur;
+    while (i < n) {
+      if (ends[i] > gEnd) { hi = gEnd; cur = gEnd + 1n; break; }   // interval continues into next group
+      hi = ends[i]; i++;
+      if (i < n) { cur = starts[i]; if (cur > gEnd) break; }
+    }
+    const start = Math.min(Math.max(commonPrefix(lo, hi, bits), minPfx), maxPfx);
+    const sz = pow2(bits - start);
+    topDown(ctx, lo - lo % sz, start, out);
+  }
+  // Totals in addresses, and in Narrowest-sized networks ("units")
+  return { addrs: orig.total, units: dec.total / unit, unitName: maxPfx === bits ? null : '/' + maxPfx };
+}
+
+// ── Aggression slider → fill threshold ──────────────────────────────────────
+const AGG_THRESH = [0, 1.0, 0.5, 0.25, 0.10, 0.03, 0.01, 0.003, 0.001, 0.0001, 0.0];
+const AGG_DESCS  = [
+  '',
+  'Exact: only emit fully covered blocks (single hosts where needed)',
+  'Very conservative: 50% fill; barely merges anything',
+  'Conservative: 25% fill required before widening a block',
+  'Moderate: 10% fill; merges well-populated /24 blocks',
+  'Balanced: ~3% fill; groups IPs sharing a /24',
+  'Aggressive: 1% fill; pulls in neighbouring /23 to /20 ranges',
+  'High: 0.3% fill; significantly broader blocks, low fill',
+  'Very high: 0.1% fill; prefers a few large blocks',
+  'Maximum: any shared block merged; very broad CIDRs',
+  'Extreme: one tight enclosing CIDR per Broadest-prefix block',
+];
+
+// ── UI ───────────────────────────────────────────────────────────────────────
+let currentCidrs = [], currentFmt = 'cidr';
+
+const ipInput  = document.getElementById('ip-input');
+const aggEl    = document.getElementById('agg');
+const aggValEl = document.getElementById('agg-val');
+const aggDescEl= document.getElementById('agg-desc');
+
+function updateSliderBg() {
+  const v = parseInt(aggEl.value,10);
+  const pct = ((v-1)/9*100).toFixed(0);
+  aggEl.style.background = `linear-gradient(to right,var(--accent) ${pct}%,var(--bg3) ${pct}%)`;
+}
+updateSliderBg();
+aggDescEl.textContent = AGG_DESCS[parseInt(aggEl.value,10)];
+
+ipInput.addEventListener('input', () => {
+  const bad = [], found = extractEntries(ipInput.value, bad);
+  const n6 = found.filter(e => e.fam === 6).length;
+  document.getElementById('ip-ct').textContent =
+    found.length + ' found' + (n6 ? ` (${n6} IPv6)` : '') + (bad.length ? `, ${bad.length} invalid` : '');
+});
+
+aggEl.addEventListener('input', () => {
+  const v = parseInt(aggEl.value,10);
+  aggValEl.textContent = v;
+  aggDescEl.textContent = AGG_DESCS[v];
+  updateSliderBg();
+  if (hasRun) analyze();
+});
+
+let hasRun = false;
+const RENDER_ROWS = 1000;
+
+function esc(t) {
+  return String(t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// Compact display for counts that can reach 2^128
+function fmtCount(n) {
+  if (n < 1000000000000n) return n.toLocaleString('en-US');
+  const bitsLen = n.toString(2).length;
+  if (n === pow2(bitsLen-1)) return '2^' + (bitsLen-1);
+  return Number(n).toExponential(2).replace('e+', 'e');
+}
+function fmtHosts(n) {
+  if (n === 1n) return '1 host';
+  if (n >= 1000000000000n) return '2^' + (n.toString(2).length - 1);
+  const x = Number(n);
+  return x>=1e9 ? (x/1e9).toFixed(1)+'B' : x>=1e6 ? (x/1e6).toFixed(1)+'M' : x>=1000 ? (x/1000).toFixed(0)+'K' : String(x);
+}
+function ratio(a, b) { return b === 0n ? 0 : Number(a) / Number(b); }
+
+function showError(title, detail) {
+  currentCidrs = [];
+  document.getElementById('results').innerHTML =
+    `<div class="err-box"><div class="et">&#x26A0; ${title}</div><div class="el">${detail}</div></div>`;
+  document.getElementById('res-ct').textContent = '';
+  document.getElementById('out-bar').style.display = 'none';
+}
+
+function clearAll() {
+  ipInput.value='';
+  document.getElementById('ip-ct').textContent='0 found';
+  document.getElementById('results').innerHTML='<div class="empty"><div class="empty-icon">&#x1F5F8;</div><p>Paste IPs and click Analyze</p></div>';
+  document.getElementById('res-ct').textContent='';
+  document.getElementById('out-bar').style.display='none';
+  currentCidrs=[];
+  hasRun=false;
+}
+
+function readPfx(id, bits, dflt) {
+  return Math.max(1, Math.min(bits, parseInt(document.getElementById(id).value,10) || dflt));
+}
+
+function analyze() {
+  if (!ipInput.value.trim()) return;
+  hasRun = true;
+
+  const errs = [];
+  const entries = extractEntries(ipInput.value, errs);
+  if (!entries.length) {
+    showError('No IP addresses found', errs.length
+      ? 'Skipped invalid: ' + errs.slice(0,10).map(esc).join('  |  ')
+      : 'Paste text containing IPv4 or IPv6 addresses, CIDRs (10.0.0.0/24, 2001:db8::/48) or ranges (10.0.0.1-10.0.0.50).');
+    return;
+  }
+
+  const limits = {
+    4: { min: readPfx('min-pfx', 32, 8),   max: readPfx('max-pfx', 32, 32) },
+    6: { min: readPfx('min-pfx6', 128, 32), max: readPfx('max-pfx6', 128, 64) },
+  };
+  for (const f of [4,6]) {
+    const {min, max} = limits[f];
+    if (min > max && entries.some(e => e.fam === f)) {
+      showError(`Invalid ${FAM[f].name} prefix limits`,
+        `Broadest /${min} is narrower than Narrowest /${max}. Broadest must be less than or equal to Narrowest.`);
+      return;
+    }
+  }
+  const thresh = AGG_THRESH[parseInt(aggEl.value,10)];
+
+  const out = [], totals = {};
+  try {
+    for (const f of [4,6]) {
+      const iv = entries.filter(e => e.fam === f).map(e => [e.lo, e.hi]);
+      if (iv.length) totals[f] = summarize(f, iv, thresh, limits[f].min, limits[f].max, out);
+    }
+  } catch (e) {
+    if (!(e instanceof CidrLimitError)) throw e;
+    showError(`More than ${MAX_CIDRS.toLocaleString()} CIDR blocks`,
+      'Output would be too large to be useful. Raise aggression, lower "Narrowest /", or lower "Broadest /".');
+    return;
+  }
+  currentCidrs = out.sort((a,b) => a.fam - b.fam || (a.network < b.network ? -1 : a.network > b.network ? 1 : 0));
+  renderResults(totals, errs, limits);
+  document.getElementById('out-bar').style.display='flex';
+}
+
+function statsBlock(f, cidrs, tot, showLabel) {
+  // When Narrowest is below the full prefix length, every input is widened to
+  // Narrowest-sized networks on purpose, so count in those networks, not addresses.
+  const u = tot.unitName;
+  const inputN   = u ? tot.units : tot.addrs;
+  const covered  = cidrs.reduce((a,c) => a + (u ? c.units : c.hosts), 0n);
+  const collateral = covered > inputN ? covered - inputN : 0n;
+  const reduction = Math.max(0, Math.round((1 - ratio(BigInt(cidrs.length), inputN)) * 100));
+  const what = u ? `${u} networks` : `${FAM[f].name} addresses`;
+  let html = showLabel ? `<div class="slbl">${FAM[f].name}</div>` : '';
+  html += `<div class="stats">
+    <div class="stat"><div class="sl">Input ${u ? u + 's' : 'IPs'}</div><div class="sv">${fmtCount(inputN)}</div></div>
+    <div class="stat blue"><div class="sl">CIDRs out</div><div class="sv">${cidrs.length.toLocaleString()}</div></div>
+    <div class="stat green"><div class="sl">Reduction</div><div class="sv">${reduction}%</div></div>
+    <div class="stat amber"><div class="sl">Collateral${u ? ' ' + u + 's' : ''}</div><div class="sv">${collateral>0n?'+'+fmtCount(collateral):'0'}</div></div>
+  </div>`;
+  if (collateral > 0n) {
+    const pct = (ratio(collateral, covered)*100).toFixed(1);
+    html += `<div class="collateral">&#x26A0;<span>${fmtCount(collateral)} extra ${what} included (${pct}% of covered space). Lower aggression to reduce.</span></div>`;
+  }
+  return html;
+}
+
+function renderResults(totals, errs, limits) {
+  const cidrs = currentCidrs;
+  const fams = [4,6].filter(f => totals[f] !== undefined);
+  let html='';
+
+  if (errs.length) html+=`<div class="err-box"><div class="et">&#x26A0; ${errs.length} invalid address${errs.length>1?'es':''} skipped</div>
+    <div class="el">${errs.slice(0,10).map(esc).join('  |  ')}${errs.length>10?' ...':''}</div></div>`;
+
+  for (const f of fams) html += statsBlock(f, cidrs.filter(c => c.fam === f), totals[f], fams.length > 1 || f === 6);
+
+  if (totals[6] !== undefined) {
+    html += `<div class="info-box">IPv6 rules: Elastic Cloud Hosted and Serverless IP filters accept IPv4 sources only. ECE accepts IPv6 addresses and CIDRs.${
+      limits[6].max < 128 ? ` Each IPv6 address is widened to its /${limits[6].max} (IPv6 Narrowest); set it to 128 for exact addresses.` : ''}</div>`;
+  }
+
+  const pfxCnt = {};
+  cidrs.forEach(c => { const k = (fams.length>1 ? (c.fam===6?'v6 ':'v4 ') : '') + '/' + c.prefix; pfxCnt[k] = (pfxCnt[k]||0) + 1; });
+  const topPfx = Object.entries(pfxCnt).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const maxPct = topPfx.length ? topPfx[0][1] : 1;
+  if (topPfx.length>1) {
+    html+=`<div class="pfx-chart"><div class="slbl">Prefix distribution</div>`;
+    topPfx.forEach(([p,ct])=>{
+      const w=Math.round(ct/maxPct*100);
+      html+=`<div class="pfx-row"><span class="pfx-lbl">${p}</span>
+        <div class="pfx-bar-bg"><div class="pfx-bar" style="width:${w}%"></div></div>
+        <span class="pfx-cnt">${ct}</span></div>`;
+    });
+    html+=`</div>`;
+  }
+
+  const shown = cidrs.length > RENDER_ROWS ? ` (showing first ${RENDER_ROWS.toLocaleString()}; copy output includes all)` : '';
+  html+=`<div class="slbl">${cidrs.length.toLocaleString()} CIDR block${cidrs.length!==1?'s':''}${shown}</div><div class="cidr-list">`;
+  cidrs.slice(0, RENDER_ROWS).forEach(c=>{
+    const u = totals[c.fam].unitName;
+    const fill = u ? ratio(c.unitCover, c.units) : ratio(c.cover, c.hosts);
+    let pc,ft;
+    if (c.prefix === FAM[c.fam].bits || (u && c.units === 1n)){pc='fp-host';ft=u ? u : 'host';}
+    else if(fill>=0.9){pc='fp-full';ft=Math.round(fill*100)+'%';}
+    else if(fill>=0.25){pc='fp-med'; ft=Math.round(fill*100)+'%';}
+    else              {pc='fp-low'; ft=fill<0.01?'<1%':Math.round(fill*100)+'%';}
+    html+=`<div class="crow">
+      <span class="caddr">${fmtAddr(c.fam, c.network)}</span>
+      <span class="cpfx">/${c.prefix}</span>
+      <span class="chosts">${u && c.units > 1n ? fmtCount(c.units) + ' ' + u + 's' : fmtHosts(c.hosts)}</span>
+      <span class="fpill ${pc}">${ft}</span>
+    </div>`;
+  });
+  html+='</div>';
+  document.getElementById('results').innerHTML=html;
+  document.getElementById('res-ct').textContent=cidrs.length+' CIDRs';
+}
+
+function setFmt(fmt,el){
+  currentFmt=fmt;
+  document.querySelectorAll('.ftab').forEach(t=>t.classList.remove('on'));
+  el.classList.add('on');
+}
+const cidrText = b => `${fmtAddr(b.fam, b.network)}/${b.prefix}`;
+function getOutput(){
+  const c=currentCidrs;
+  if(currentFmt==='elastic'){
+    // Request body for POST /api/v1/deployments/traffic-filter/rulesets.
+    // Replace name and region before sending. IPv6 sources are ECE only.
+    const rules=c.map(b=>({
+      source: cidrText(b),
+      description: b.units !== b.hosts
+        ? `${fmtCount(b.unitCover)} of ${fmtCount(b.units)} /${FAM[b.fam].bits - (b.hosts / b.units).toString(2).length + 1} networks from input`
+        : `${fmtCount(b.cover)} of ${fmtCount(b.hosts)} addresses from input`
+    }));
+    return JSON.stringify({
+      name:'cidr-summarizer-ruleset',
+      type:'ip',
+      region:'REPLACE_WITH_DEPLOYMENT_REGION',
+      include_by_default:false,
+      description:`Generated by Offline CIDR Summarizer: ${c.length} rule${c.length!==1?'s':''}`,
+      rules
+    },null,2);
+  }
+  if(currentFmt==='csv'){
+    const lines=['cidr,network,prefix,total_hosts,matched_ips,fill_pct,family'];
+    c.forEach(b=>lines.push(`${cidrText(b)},${fmtAddr(b.fam,b.network)},${b.prefix},${b.hosts},${b.cover},${(ratio(b.cover,b.hosts)*100).toFixed(1)},${FAM[b.fam].name}`));
+    return lines.join('\n');
+  }
+  return c.map(cidrText).join('\n');
+}
+function copyOut(){
+  const txt=getOutput(), btn=document.querySelector('.copy-btn');
+  const done=()=>{ btn.textContent='Copied!'; setTimeout(()=>btn.textContent='Copy output',1800); };
+  navigator.clipboard.writeText(txt).then(done).catch(()=>{
+    const ta=document.createElement('textarea');ta.value=txt;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
+    done();
+  });
+}
+</script>
+</body>
+</html>
